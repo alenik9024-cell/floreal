@@ -1,1 +1,471 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Генератор КП — ООО «Флореаль МСК»</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="opisaniya.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; margin: 0; padding: 20px; background: #f1f5f9; color: #1e293b; }
+  .app { display: flex; gap: 20px; max-width: 1480px; margin: 0 auto; align-items: flex-start; }
+  .sidebar { width: 430px; flex-shrink: 0; background: #fff; padding: 22px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+  .preview { flex: 1; min-width: 0; background: #fff; padding: 40px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.1); overflow-x: auto; }
+  .fg { margin-bottom: 12px; }
+  label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 4px; color: #475569; }
+  label.check { display: flex; align-items: center; gap: 6px; font-weight: normal; font-size: 13px; color: #1e293b; margin: 5px 0; }
+  input, select, textarea { width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 13px; font-family: inherit; }
+  input[type=checkbox] { width: auto; margin: 0; }
+  input[type=file] { padding: 6px; background: #f8fafc; }
+  button { width: 100%; padding: 10px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; margin-top: 6px; font-family: inherit; }
+  .btn-add { background: #2563eb; color: #fff; }
+  .btn-clear { background: #e2e8f0; color: #475569; }
+  .btn-small { width: auto; padding: 6px 10px; font-size: 12px; }
+  .btn-print { background: #16a34a; color: #fff; padding: 12px; font-size: 15px; margin-bottom: 20px; }
+  .btn-delete-row { background: #fee2e2; color: #dc2626; border: 1px solid #fecaca; border-radius: 4px; padding: 4px 8px; font-size: 12px; width: auto; margin: 0; }
+  .qty { width: 70px; padding: 4px 6px; text-align: center; font-weight: bold; border: 1px solid #cbd5e1; border-radius: 4px; }
+  .status { font-size: 12px; color: #475569; margin-top: 6px; line-height: 1.4; }
+  .status.err { color: #dc2626; }
+  .cmp-box { background: #f0fdf4; border: 1px solid #bbf7d0; padding: 10px 12px; border-radius: 6px; margin-bottom: 12px; }
+  .kp-header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #2563eb; padding-bottom: 15px; margin-bottom: 20px; }
+  .logo { display: block; height: 70px; max-width: 300px; object-fit: contain; margin-bottom: 10px; }
+  .contacts { font-size: 13px; line-height: 1.4; text-align: right; color: #475569; }
+  .client-info { background: #f8fafc; border-left: 4px solid #2563eb; padding: 12px 16px; margin-bottom: 20px; font-size: 13px; line-height: 1.5; }
+  table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 13px; }
+  th { background: #f8fafc; border-bottom: 2px solid #cbd5e1; padding: 10px 8px; text-align: left; }
+  td { border-bottom: 1px solid #e2e8f0; padding: 10px 8px; vertical-align: middle; }
+  tfoot td { border-top: 2px solid #cbd5e1; border-bottom: none; font-weight: bold; }
+  .r { text-align: right; white-space: nowrap; }
+  .c { text-align: center; }
+  .small { display: block; font-size: 11px; color: #64748b; font-weight: normal; }
+  .total-box { text-align: right; margin-top: 25px; font-size: 16px; }
+  .total-sum { font-size: 22px; font-weight: bold; color: #1e3a8a; }
+  .terms { margin-top: 40px; font-size: 11px; color: #64748b; border-top: 1px solid #e2e8f0; padding-top: 12px; line-height: 1.5; }
+  .print-qty-text { display: none; }
+  @media print {
+    body { background: #fff; padding: 0; }
+    .sidebar, .no-print { display: none !important; }
+    .preview { padding: 0; box-shadow: none; width: 100%; }
+    .qty { display: none !important; }
+    .print-qty-text { display: inline-block !important; font-weight: bold; }
+  }
+</style>
+</head>
+<body>
 
+<div class="app">
+  <!-- Панель менеджера -->
+  <div class="sidebar no-print">
+    <h3 style="margin-top:0;">Параметры КП</h3>
+    <div class="fg"><label>Клиент / Организация:</label>
+      <input id="client_name" value="ООО «Партнер»" oninput="updateView()"></div>
+    <div class="fg"><label>Менеджер:</label>
+      <input id="manager_name" value="Отдел продаж" oninput="updateView()"></div>
+    <div class="fg"><label>Срок действия предложения (дней):</label>
+      <input type="number" id="valid_days" value="7" min="1" oninput="updateView()"></div>
+
+    <div class="fg">
+      <label>Логотип (PNG/JPG):</label>
+      <input type="file" id="logo_file" accept="image/*" onchange="onLogoUpload(event)">
+      <button class="btn-clear btn-small" onclick="resetLogo()">Вернуть logo.png из папки</button>
+    </div>
+
+    <div class="fg">
+      <label>Прайс (Excel .xls / .xlsx):</label>
+      <input type="file" id="price_file" accept=".xls,.xlsx" onchange="onPriceUpload(event)">
+      <div class="status" id="price_status"></div>
+      <button class="btn-clear btn-small" onclick="resetPrice()">Перечитать price.xls из папки</button>
+    </div>
+
+    <div class="fg">
+      <label>Дата прайса:</label>
+      <input type="text" id="price_date" value="15.10.2026" oninput="updatePriceDate()">
+    </div>
+
+    <hr style="margin:15px 0; border:none; border-top:1px solid #e2e8f0;">
+    <h3 style="margin-top:0;">Добавить товар</h3>
+
+    <div class="fg">
+      <label>💰 Ценовая категория для новой позиции:</label>
+      <select id="price_tier_select" onchange="calcPrice()" style="background:#eff6ff; border-color:#3b82f6; font-weight:bold; color:#1d4ed8;"></select>
+    </div>
+
+    <div class="cmp-box">
+      <label class="check"><input type="checkbox" id="cmp_mode" onchange="onCmpToggle()"> <b>Режим сравнения</b> — суммы по нескольким закупкам в одном КП</label>
+      <div id="cmp_tiers" style="display:none; margin-top:6px;"></div>
+    </div>
+
+    <div class="fg">
+      <label>🔍 Поиск (<span id="count_display">0</span> поз.):</label>
+      <input id="search_input" placeholder="Введите: саше, мыло, рапин..." oninput="filterProducts()">
+    </div>
+    <div class="fg">
+      <label>Товар:</label>
+      <select id="product_select" size="7" onchange="onProductSelect()" style="height:150px;"></select>
+    </div>
+    <div style="display:flex; gap:10px;">
+      <div class="fg" style="flex:1;"><label>Количество:</label>
+        <input type="number" id="item_qty" value="1" min="0.01" step="any"></div>
+      <div class="fg" style="flex:1;"><label>Цена с НДС 22%:</label>
+        <input id="item_price" readonly style="background:#f8fafc; font-weight:bold; color:#1e3a8a;"></div>
+    </div>
+    <div class="fg"><label>Описание позиции для КП:</label>
+      <textarea id="item_desc" rows="3"></textarea></div>
+
+    <button class="btn-add" onclick="addItem()">➕ Добавить позицию в КП</button>
+    <button class="btn-clear" onclick="clearAll()">🗑️ Очистить всё КП</button>
+  </div>
+
+  <!-- Бланк коммерческого предложения -->
+  <div class="preview">
+    <button class="btn-print no-print" onclick="window.print()">🖨️ Распечатать / Сохранить в PDF</button>
+
+    <div class="kp-header">
+      <div>
+        <img id="kp_logo" class="logo" alt="НПП «Флореаль»" onerror="this.style.display='none'">
+        <h2 style="color:#2563eb; margin:0; font-size:26px;">ООО «Флореаль МСК»</h2>
+        <div style="font-size:12px; color:#64748b; margin-top:3px;">НАДЕЖНЫЙ ПУТЬ К ЧИСТОТЕ®</div>
+      </div>
+      <div class="contacts">
+        <strong style="font-size:14px; color:#1e293b;">ООО «Флореаль МСК»</strong><br>
+        Сайт: www.florealmsk.ru<br>
+        E-mail: florealmsk@yandex.ru<br>
+        Тел.: +7 (968) 582-82-08
+      </div>
+    </div>
+
+    <div class="client-info">
+      <strong style="font-size:15px;">КОММЕРЧЕСКОЕ ПРЕДЛОЖЕНИЕ</strong><br>
+      <span id="view_client"><strong>Кому:</strong> ООО «Партнер»</span><br>
+      <span id="view_manager"><strong>Менеджер:</strong> Отдел продаж</span><br>
+      <span id="view_validity"><strong>Срок действия:</strong> 7 дней</span>
+    </div>
+
+    <table>
+      <thead id="kp_thead"></thead>
+      <tbody id="table_body"></tbody>
+      <tfoot id="kp_tfoot"></tfoot>
+    </table>
+
+    <div class="total-box" id="total_box">ИТОГО К ОПЛАТЕ: <span class="total-sum" id="total_amount">0.00 ₽</span></div>
+
+    <div class="terms">
+      <strong>Условия поставки и оплаты:</strong> Цены включают НДС 22%. Цены актуальны с <span id="price_date_view"></span>. Оплата — 100% предоплата (если иное не оговорено в договоре). Сроки отгрузки и условия доставки согласовываются индивидуально.<br>
+      Благодарим за сотрудничество!
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const KEY_PRICE = 'florealPriceV2', KEY_LOGO = 'florealLogoV1', SRC_FILE = 'price.xls';
+let PRICE = null;   // { date, tiers[], items[{id, sku, name, prices[]}], source }
+let kp = [];        // { sku, name, desc, qty, t, prices[] }
+
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const fmt = x => x.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const num = v => {
+  if (typeof v === 'number') return v;
+  const n = parseFloat(String(v || '').replace(/\s/g, '').replace(',', '.'));
+  return isNaN(n) ? NaN : n;
+};
+// descFor берётся из opisaniya.js; если файла нет — описание будет просто названием
+const descOf = (sku, name) => (typeof descFor === 'function' ? descFor(sku, name) : '') || '';
+
+// ---------- Чтение прайса ----------
+function readWorkbook(buf) {
+  const wb = XLSX.read(new Uint8Array(buf), { type: 'array' });
+  return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '', raw: true });
+}
+
+// Категории — по ячейкам «от N руб», колонки артикула и наименования — по заголовкам
+function parseRows(rows, fileName) {
+  let hr = -1, tc = [];
+  for (let r = 0; r < rows.length && hr < 0; r++) {
+    const cols = [];
+    (rows[r] || []).forEach((v, j) => { if (/от\s*[\d\s]+руб/i.test(String(v))) cols.push(j); });
+    if (cols.length >= 2) { hr = r; tc = cols; }
+  }
+  if (hr < 0) throw new Error('в файле не найдена строка с ценовыми категориями («от N руб»)');
+
+  const find = (re, def) => {
+    for (let r = 0; r <= hr; r++) {
+      const j = (rows[r] || []).findIndex(v => re.test(String(v)));
+      if (j >= 0) return j;
+    }
+    return def;
+  };
+  const nc = find(/Номенклатура/i, 4), ac = find(/Артикул/i, 0);
+  const tiers = tc.map(j => String(rows[hr][j]).replace(/\s+/g, ' ').trim());
+
+  const items = [];
+  for (let r = hr + 1; r < rows.length; r++) {
+    const row = rows[r] || [];
+    const name = String(row[nc] || '').replace(/\s+/g, ' ').replace(/,\s*,\s*[^,]*$/, '').trim();
+    const prices = tc.map(j => num(row[j]));
+    if (!name || prices.every(isNaN)) continue;
+    items.push({
+      id: 'r' + r,
+      sku: String(row[ac] || '').trim() || '—',
+      name,
+      prices: prices.map(p => isNaN(p) ? 0 : p)
+    });
+  }
+  if (!items.length) throw new Error('в файле нет позиций с ценами');
+
+  const m = fileName.match(/(\d{2}\.\d{2}\.\d{4})/);
+  return { date: m ? m[1] : '', tiers, items, source: fileName };
+}
+
+function setStatus(msg, err) {
+  const el = $('price_status');
+  el.className = 'status' + (err ? ' err' : '');
+  el.innerText = msg;
+}
+
+// Свежий price.xls без кэша браузера
+async function fetchPriceFile() {
+  if (location.protocol === 'file:') {
+    throw new Error('страница открыта как файл; нужен GitHub Pages или локальный сервер');
+  }
+  const res = await fetch(SRC_FILE + '?v=' + Date.now(), { cache: 'no-store' });
+  if (!res.ok) throw new Error(SRC_FILE + ' не найден рядом с генератором (код ' + res.status + ')');
+  return parseRows(readWorkbook(await res.arrayBuffer()), SRC_FILE);
+}
+
+// Порядок: свежий price.xls → сохранённый прайс → ручная загрузка
+async function loadInitial() {
+  try {
+    PRICE = await fetchPriceFile();
+    localStorage.setItem(KEY_PRICE, JSON.stringify(PRICE));
+    setStatus(`Прайс загружен из ${SRC_FILE}, позиций: ${PRICE.items.length}.`);
+  } catch (e) {
+    const saved = localStorage.getItem(KEY_PRICE);
+    if (saved) {
+      PRICE = JSON.parse(saved);
+      setStatus(`${SRC_FILE} не загружен (${e.message}). Показан сохранённый прайс: ${PRICE.source}, позиций: ${PRICE.items.length}.`, true);
+    } else {
+      PRICE = null;
+      setStatus(`Прайс не загружен: ${e.message}. Загрузите файл вручную.`, true);
+    }
+  }
+  applyPrice();
+}
+
+function onPriceUpload(e) {
+  const f = e.target.files[0];
+  if (!f) return;
+  const rd = new FileReader();
+  rd.onload = ev => {
+    try {
+      PRICE = parseRows(readWorkbook(ev.target.result), f.name);
+      localStorage.setItem(KEY_PRICE, JSON.stringify(PRICE));
+      applyPrice();
+      setStatus(`Прайс обновлён: ${f.name}, позиций: ${PRICE.items.length}.`);
+    } catch (err) {
+      setStatus('Не удалось прочитать прайс: ' + err.message, true);
+    }
+  };
+  rd.readAsArrayBuffer(f);
+}
+
+function resetPrice() {
+  localStorage.removeItem(KEY_PRICE);
+  $('price_file').value = '';
+  loadInitial();
+}
+
+// Перестраивает списки под текущий прайс и пересчитывает позиции КП по наименованию
+function applyPrice() {
+  const tiers = PRICE ? PRICE.tiers : [];
+
+  const sel = $('price_tier_select');
+  const cur = parseInt(sel.value);
+  sel.innerHTML = tiers.map((t, i) => `<option value="${i}">${esc(t)}</option>`).join('');
+  sel.value = tiers.length ? ((cur >= 0 && cur < tiers.length) ? cur : tiers.length - 1) : '';
+
+  const old = [...document.querySelectorAll('.cmp-tier')];
+  const was = old.filter(b => b.checked).map(b => +b.value);
+  $('cmp_tiers').innerHTML = tiers.map((t, i) =>
+    `<label class="check"><input type="checkbox" class="cmp-tier" value="${i}" ${(!old.length || was.includes(i)) ? 'checked' : ''} onchange="renderKP()"> ${esc(t)}</label>`
+  ).join('');
+
+  const missing = [];
+  kp.forEach(it => {
+    const m = PRICE && PRICE.items.find(p => p.name === it.name);
+    if (m) it.prices = m.prices.slice();
+    else missing.push(it.name);
+    if (it.t >= tiers.length) it.t = Math.max(0, tiers.length - 1);
+  });
+  if (missing.length) {
+    const el = $('price_status');
+    el.className = 'status err';
+    el.innerText += ' Нет в новом прайсе, цены оставлены прежние: ' + missing.join('; ');
+  }
+
+  if (PRICE && PRICE.date) $('price_date').value = PRICE.date;
+  updatePriceDate();
+  filterProducts();
+  renderKP();
+}
+
+function updatePriceDate() {
+  $('price_date_view').innerText = $('price_date').value;
+}
+
+// ---------- Логотип ----------
+function setLogo(src) {
+  const img = $('kp_logo');
+  img.style.display = '';
+  img.src = src;
+}
+
+function onLogoUpload(e) {
+  const f = e.target.files[0];
+  if (!f) return;
+  const rd = new FileReader();
+  rd.onload = ev => {
+    try { localStorage.setItem(KEY_LOGO, ev.target.result); } catch (err) { /* слишком большой файл — показываем без сохранения */ }
+    setLogo(ev.target.result);
+  };
+  rd.readAsDataURL(f);
+}
+
+function resetLogo() {
+  localStorage.removeItem(KEY_LOGO);
+  $('logo_file').value = '';
+  setLogo('logo.png');
+}
+
+// ---------- Подбор товара ----------
+function filterProducts() {
+  const q = $('search_input').value.toLowerCase().trim();
+  const list = PRICE ? PRICE.items.filter(p => (p.sku + ' ' + p.name).toLowerCase().includes(q)) : [];
+  $('product_select').innerHTML = list.map(p => `<option value="${esc(p.id)}">${esc(p.sku)} | ${esc(p.name)}</option>`).join('');
+  $('count_display').innerText = list.length;
+  if (list.length) $('product_select').selectedIndex = 0;
+  onProductSelect();
+}
+
+function selected() {
+  return PRICE ? (PRICE.items.find(p => p.id === $('product_select').value) || null) : null;
+}
+
+function onProductSelect() {
+  const p = selected();
+  if (p) $('item_desc').value = descOf(p.sku, p.name) || p.name;
+  calcPrice();
+}
+
+function calcPrice() {
+  const p = selected();
+  const t = parseInt($('price_tier_select').value);
+  $('item_price').value = (p && !isNaN(t)) ? fmt(p.prices[t] || 0) + ' ₽' : '';
+}
+
+function onCmpToggle() {
+  $('cmp_tiers').style.display = $('cmp_mode').checked ? 'block' : 'none';
+  renderKP();
+}
+
+// ---------- КП ----------
+function addItem() {
+  const p = selected();
+  if (!p) return;
+  kp.push({
+    sku: p.sku,
+    name: p.name,
+    desc: $('item_desc').value.trim() || p.name,
+    qty: parseFloat($('item_qty').value) || 1,
+    t: parseInt($('price_tier_select').value) || 0,
+    prices: p.prices.slice()
+  });
+  renderKP();
+}
+
+function delItem(i) { kp.splice(i, 1); renderKP(); }
+
+function setQty(i, v) {
+  const q = parseFloat(v);
+  if (q > 0) kp[i].qty = q;
+  renderKP();
+}
+
+function clearAll() { kp = []; renderKP(); }
+
+function updateView() {
+  $('view_client').innerHTML = '<strong>Кому:</strong> ' + esc($('client_name').value);
+  $('view_manager').innerHTML = '<strong>Менеджер:</strong> ' + esc($('manager_name').value);
+  $('view_validity').innerHTML = '<strong>Срок действия:</strong> ' + esc($('valid_days').value) + ' дней';
+}
+
+// Без режима сравнения — прежний вид: «Цена/ед.» и «Сумма» по категории, выбранной при добавлении позиции.
+// С режимом сравнения — колонка суммы на каждую отмеченную закупку и строка «ИТОГО» по каждой.
+function renderKP() {
+  const tiers = PRICE ? PRICE.tiers : [];
+  const cmp = $('cmp_mode').checked;
+  const cols = cmp ? [...document.querySelectorAll('.cmp-tier:checked')].map(b => +b.value).filter(i => i < tiers.length) : [];
+  const useCmp = cmp && cols.length > 0;
+  const sums = (useCmp ? cols : [0]).map(() => 0);
+  const ncol = 4 + (useCmp ? cols.length : 2) + 1;
+
+  $('kp_thead').innerHTML = `<tr>
+    <th class="c" style="width:4%;">№</th>
+    <th style="width:10%;">Артикул</th>
+    <th>Наименование и описание</th>
+    <th class="c" style="width:9%;">Кол-во</th>
+    ${useCmp
+      ? cols.map(t => `<th class="r">Сумма при закупке<span class="small">${esc(tiers[t])}</span></th>`).join('')
+      : '<th class="r">Цена/ед.</th><th class="r">Сумма</th>'}
+    <th class="no-print"></th>
+  </tr>`;
+
+  const body = $('table_body');
+  if (!kp.length) {
+    body.innerHTML = `<tr><td colspan="${ncol}" class="c" style="color:#94a3b8; padding:30px;">Позиции еще не добавлены</td></tr>`;
+  } else {
+    body.innerHTML = kp.map((it, i) => {
+      let cells;
+      if (useCmp) {
+        cells = cols.map((t, k) => {
+          const u = it.prices[t] || 0, s = u * it.qty;
+          sums[k] += s;
+          return `<td class="r"><b>${fmt(s)} ₽</b><span class="small">${fmt(u)} ₽/ед.</span></td>`;
+        }).join('');
+      } else {
+        const u = it.prices[it.t] || 0, s = u * it.qty;
+        sums[0] += s;
+        cells = `<td class="r">${fmt(u)} ₽</td><td class="r" style="font-weight:bold; color:#1e3a8a;">${fmt(s)} ₽</td>`;
+      }
+      return `<tr>
+        <td class="c">${i + 1}</td>
+        <td>${esc(it.sku)}</td>
+        <td><b>${esc(it.name)}</b>${it.desc && it.desc !== it.name ? `<span class="small">${esc(it.desc)}</span>` : ''}</td>
+        <td class="c">
+          <input type="number" class="qty no-print" value="${it.qty}" min="0.01" step="any" onchange="setQty(${i}, this.value)">
+          <span class="print-qty-text">${it.qty}</span>
+        </td>
+        ${cells}
+        <td class="c no-print"><button class="btn-delete-row" title="Удалить" onclick="delItem(${i})">❌</button></td>
+      </tr>`;
+    }).join('');
+  }
+
+  $('kp_tfoot').innerHTML = useCmp
+    ? `<tr><td colspan="4" class="r">ИТОГО</td>${sums.map(s => `<td class="r" style="color:#1e3a8a;">${fmt(s)} ₽</td>`).join('')}<td class="no-print"></td></tr>`
+    : '';
+  $('total_box').style.display = useCmp ? 'none' : 'block';
+  $('total_amount').innerText = fmt(sums[0]) + ' ₽';
+}
+
+window.onload = () => {
+  setLogo(localStorage.getItem(KEY_LOGO) || 'logo.png');
+  updateView();
+  updatePriceDate();
+  renderKP();
+  loadInitial();
+};
+</script>
+
+</body>
+</html>
