@@ -1,1 +1,250 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Каталог продукции и оптовый прайс — ООО «Флореаль МСК»</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="opisaniya.js"></script>
+<style>
+  body { font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; margin: 0; padding: 20px; color: #1e293b; background: #f1f5f9; }
+  .page { max-width: 1160px; margin: 0 auto; background: #fff; padding: 36px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+  .bar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; background: #f8fafc; padding: 10px 12px; border-radius: 6px; margin-bottom: 16px; font-size: 13px; }
+  .bar input[type=text] { width: 120px; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px; }
+  .bar button { width: auto; padding: 8px 14px; border: none; border-radius: 6px; background: #16a34a; color: #fff; font-weight: bold; cursor: pointer; }
+  .status { font-size: 12px; color: #475569; flex: 1; min-width: 200px; }
+  .status.err { color: #dc2626; }
+  .top { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #2563eb; padding-bottom: 14px; margin-bottom: 18px; }
+  .logo { display: block; height: 70px; max-width: 300px; object-fit: contain; margin-bottom: 8px; }
+  .contacts { font-size: 13px; text-align: right; color: #475569; line-height: 1.4; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2.sec { font-size: 15px; color: #1e3a8a; margin: 22px 0 6px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px; page-break-after: avoid; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th { background: #f8fafc; border-bottom: 2px solid #cbd5e1; padding: 6px; text-align: right; font-size: 11.5px; }
+  td { border-bottom: 1px solid #e2e8f0; padding: 6px; vertical-align: middle; text-align: right; white-space: nowrap; }
+  th.l, td.l { text-align: left; }
+  td.l { white-space: normal; }
+  td.ph { width: 92px; text-align: center; padding: 4px; }
+  .photo { width: 84px; height: 66px; object-fit: contain; display: block; margin: 0 auto; }
+  .nophoto { width: 84px; height: 66px; display: flex; align-items: center; justify-content: center; margin: 0 auto; border: 1px dashed #cbd5e1; color: #94a3b8; font-size: 10px; border-radius: 4px; }
+  .desc { display: block; font-size: 11px; color: #64748b; line-height: 1.35; margin-top: 3px; white-space: normal; }
+  .miss { color: #94a3b8; font-style: italic; text-align: left; }
+  tr { page-break-inside: avoid; }
+  .foot { font-size: 11px; color: #64748b; margin-top: 24px; }
+  @media print {
+    @page { size: A4 landscape; margin: 10mm; }
+    body { background: #fff; padding: 0; }
+    .page { box-shadow: none; padding: 0; max-width: none; }
+    .no-print { display: none !important; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="bar no-print">
+    <label>Прайс (.xls/.xlsx): <input type="file" id="price_file" accept=".xls,.xlsx" onchange="onFile(event)"></label>
+    <label>Дата: <input type="text" id="price_date" value="15.10.2026" oninput="updateDateView()"></label>
+    <button onclick="window.print()">🖨️ Печать / PDF</button>
+    <span id="status" class="status"></span>
+  </div>
 
+  <div class="top">
+    <div>
+      <img id="logo" class="logo" alt="НПП «Флореаль»" onerror="this.style.display='none'">
+      <div style="font-size:12px; color:#64748b;">ООО «ФЛОРЕАЛЬ МСК» • Профессиональная химия Floreal • Оптовые цены с НДС 22%</div>
+    </div>
+    <div class="contacts">Сайт: www.florealmsk.ru<br>E-mail: florealmsk@yandex.ru<br>Тел.: 8 (968) 582-82-08</div>
+  </div>
+
+  <h1>Каталог продукции и оптовый прайс-лист</h1>
+  <div style="font-size:13px; margin-bottom:10px;">Цены актуальны с <b id="date_view">15.10.2026</b></div>
+
+  <div id="catalog"></div>
+  <div class="foot">Цены в рублях с НДС 22% за единицу упаковки. Фото берутся из папки photos/ (имя файла — артикул; для повторов — артикул_слово.jpg).</div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const KEY_PRICE = 'florealPriceV2', KEY_LOGO = 'florealLogoV1';
+let PRICE = null; // { tiers[], rows[{sku, name, prices[]}] }
+
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const fmt = x => x.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+// Разделы каталога (PDF). Токен: артикул или «артикул~слово из названия» при повторе артикула.
+const SECTIONS = [
+  ['1. ДЕЗИНФЕКЦИЯ И АНТИСЕПТИКИ', '3007 3002 3005 3011~Альбавет 3001 3003 3006 3015 3013 1450 1445 9072 9019 9075 3011~ХлорЭксель 1484 9093 9027 9094 3012~Альбавет 3012~Первохлор'],
+  ['2. ЛИЧНАЯ ГИГИЕНА И КОСМЕТИКА', '2053 2005 1400 1442 2009 2055 2023 1401 2070 2011 1303 1802 9089 9018 9031 9032 1304 1800 9023 9028 9057 9060 9034 9058 9056 9059 9066 9024 9035 9038 9040 9041 9036 9004 9044 9033 9047 9005 9006 2025 9070 9043 9029 9030 9037 2027 2028 2001 2029 2071'],
+  ['3. МОЙКА ПОЛОВ И СТЕН', '1305 1307 4050 1309 1308 4036 4037 4054'],
+  ['4. МОЙКА САНТЕХНИКИ И БАССЕЙНОВ', '7037 7041 7036 7039 7035 7033 7032 7034 7038 7042 7030'],
+  ['5. МОЙКА КУХНИ И ПОСУДЫ', '5060 5022 5066 5040 5006 5063 5024 5053 5004 5000 5013 5069 5037 5003 5009 5067 5035 5033 5039 5028'],
+  ['6. МОЙКА ТЕХНОЛОГИЧЕСКОГО ОБОРУДОВАНИЯ (CIP)', '6007 6008 6024 6017 6013 6025 6015 6009 6010 6026 6019 6011 6018 4010~INOX 4042 4027 4045 4029 6023 4023 4026 4028 4009 4030 4047 4010~Рапин 4031 4048 4032 4008 4049 4035 1201 4012 1205 1202 4052 6900 4039'],
+  ['7. СТИРКА И УХОД ЗА ТЕКСТИЛЕМ', '1500 1502 1505 1508 1501 1503 1506 1616 1515 1511 1509'],
+  ['8. ЧИСТКА КОВРОВ И МЕБЕЛИ', '1300 1301'],
+  ['9. МОЙКА СТЕКОЛ И ЗЕРКАЛ', '1705 1700 1706 1701'],
+  ['10. АВТОХИМИЯ И СПЕЦЭФФЕКТЫ', '1004 1001 1102 1103'],
+  ['11. ОБОРУДОВАНИЕ И АКСЕССУАРЫ', '3016']
+];
+
+function updateDateView() {
+  $('date_view').innerText = $('price_date').value;
+}
+
+function setStatus(msg, err) {
+  const el = $('status');
+  el.className = 'status' + (err ? ' err' : '');
+  el.innerText = msg;
+}
+
+const readWB = buf => {
+  const wb = XLSX.read(new Uint8Array(buf), { type: 'array' });
+  return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '', raw: true });
+};
+
+// Категории — по ячейкам «от N руб», колонки артикула и наименования — по заголовкам
+function parseRows(rows) {
+  let hr = -1, tc = [];
+  for (let r = 0; r < rows.length && hr < 0; r++) {
+    const cols = [];
+    (rows[r] || []).forEach((v, j) => { if (/от\s*[\d\s]+руб/i.test(String(v))) cols.push(j); });
+    if (cols.length >= 2) { hr = r; tc = cols; }
+  }
+  if (hr < 0) throw new Error('в файле не найдена строка с ценовыми категориями');
+  const find = re => {
+    for (let r = 0; r <= hr; r++) {
+      const j = (rows[r] || []).findIndex(v => re.test(String(v)));
+      if (j >= 0) return j;
+    }
+    return -1;
+  };
+  const nc = find(/Номенклатура/i), ac = find(/Артикул/i);
+  const num = v => { const n = parseFloat(String(v).replace(/\s/g, '').replace(',', '.')); return isNaN(n) ? NaN : n; };
+  const out = [];
+  for (let r = hr + 1; r < rows.length; r++) {
+    const row = rows[r] || [];
+    const name = String(row[nc] || '').replace(/\s+/g, ' ').replace(/,\s*,\s*[^,]*$/, '').trim();
+    const prices = tc.map(j => num(row[j]));
+    if (name && prices.some(p => !isNaN(p))) {
+      out.push({ sku: String(row[ac] || '').trim(), name, prices: prices.map(p => isNaN(p) ? 0 : p) });
+    }
+  }
+  return { tiers: tc.map(j => String(rows[hr][j]).replace(/\s+/g, ' ').trim()), rows: out };
+}
+
+function findRow(token) {
+  const [sku, key] = token.split('~');
+  const same = PRICE.rows.filter(r => r.sku === sku);
+  if (!key) return same[0] || null;
+  return same.find(r => r.name.toLowerCase().includes(key.toLowerCase())) || null;
+}
+
+function photoOf(token) {
+  return 'photos/' + token.replace('~', '_') + '.jpg';
+}
+
+function photoFail(img) {
+  const d = document.createElement('div');
+  d.className = 'nophoto';
+  d.textContent = 'нет фото';
+  img.replaceWith(d);
+}
+
+function rowHtml(r, token) {
+  const d = typeof descFor === 'function' ? descFor(r.sku, r.name) : '';
+  const desc = d ? `<span class="desc">${esc(d)}</span>` : '';
+  const photo = `<img class="photo" src="${photoOf(token)}" alt="" onerror="photoFail(this)">`;
+  return `<tr>
+    <td class="ph">${photo}</td>
+    <td class="l">${esc(r.sku)}</td>
+    <td class="l"><b>${esc(r.name)}</b>${desc}</td>
+    ${r.prices.map(p => `<td>${fmt(p)} ₽</td>`).join('')}
+  </tr>`;
+}
+
+function render() {
+  const n = PRICE.tiers.length;
+  const head = `<tr>
+    <th style="width:92px;"></th>
+    <th class="l" style="width:7%;">Арт.</th>
+    <th class="l">Наименование и назначение</th>
+    ${PRICE.tiers.map(t => `<th>${esc(t)}</th>`).join('')}
+  </tr>`;
+  const table = body => `<table><thead>${head}</thead><tbody>${body}</tbody></table>`;
+  const used = new Set(), gaps = [];
+  let html = '';
+
+  SECTIONS.forEach(([title, list]) => {
+    let body = '';
+    list.trim().split(/\s+/).forEach(token => {
+      const r = findRow(token);
+      if (!r) {
+        gaps.push(token.replace('~', ' '));
+        body += `<tr><td></td><td class="l">${esc(token.split('~')[0])}</td><td class="miss" colspan="${n + 1}">нет в текущем прайсе</td></tr>`;
+        return;
+      }
+      used.add(r);
+      body += rowHtml(r, token);
+    });
+    html += `<h2 class="sec">${esc(title)}</h2>` + table(body);
+  });
+
+  const rest = PRICE.rows.filter(r => !used.has(r));
+  if (rest.length) {
+    html += `<h2 class="sec">ПРОЧЕЕ (есть в прайсе, нет в разделах каталога)</h2>` + table(rest.map(r => rowHtml(r, r.sku)).join(''));
+  }
+
+  $('catalog').innerHTML = html;
+  updateDateView();
+  return `Позиций в прайсе: ${PRICE.rows.length}. Без цены в прайсе: ${gaps.length}${gaps.length ? ' (' + gaps.join(', ') + ')' : ''}.`;
+}
+
+// Порядок: свежий price.xls рядом с каталогом → прайс из генератора (localStorage)
+async function load() {
+  let note = '', isErr = false;
+  try {
+    if (location.protocol === 'file:') {
+      throw new Error('страница открыта как файл; нужен GitHub Pages или локальный сервер');
+    }
+    const res = await fetch('price.xls?v=' + Date.now(), { cache: 'no-store' });
+    if (!res.ok) throw new Error('price.xls не найден рядом с каталогом (код ' + res.status + ')');
+    PRICE = parseRows(readWB(await res.arrayBuffer()));
+    note = 'Прайс взят из price.xls. ';
+  } catch (e) {
+    const saved = localStorage.getItem(KEY_PRICE);
+    if (!saved) {
+      setStatus('Прайс не загружен: ' + e.message + '. Загрузите файл вручную.', true);
+      return;
+    }
+    const s = JSON.parse(saved);
+    PRICE = { tiers: s.tiers, rows: s.items || s.rows || [] };
+    note = 'price.xls не загружен (' + e.message + '). Показан сохранённый прайс из генератора. ';
+    isErr = true;
+  }
+  const info = render();
+  setStatus(note + info, isErr);
+}
+
+function onFile(e) {
+  const f = e.target.files[0];
+  if (!f) return;
+  const rd = new FileReader();
+  rd.onload = ev => {
+    try {
+      PRICE = parseRows(readWB(ev.target.result));
+      const m = f.name.match(/(\d{2}\.\d{2}\.\d{4})/);
+      if (m) $('price_date').value = m[1];
+      const info = render();
+      setStatus(`Прайс обновлён: ${f.name}. ` + info);
+    } catch (err) {
+      setStatus('Не удалось прочитать прайс: ' + err.message, true);
+    }
+  };
+  rd.readAsArrayBuffer(f);
+}
+
+window.onload = () => {
+  $('logo').src = localStorage.getItem(KEY_LOGO) || 'logo.png';
+  load();
+};
+</script>
+</body>
+</html>
